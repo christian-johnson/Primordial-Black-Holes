@@ -38,18 +38,18 @@ for i in range(len(Ns)):
     #Do this for many trials, find the 95% percentile value for maximum value drawn
     #i.e. mc_results[N] is the 95% confidence value, such that if you drew from a normal distribution
     #N times, there's a 95% chance that the highest value you got would be less than
-    mc_results[i] = np.sort(np.max(np.random.randn(Ns[i],trials),axis=0))[::-1][int(0.05*trials)]
+    #mc_results[i] = np.sort(np.max(np.random.randn(Ns[i],trials),axis=0))[::-1][int(0.05*trials)]
     theory_results[i] = x[np.argmin(np.abs(c**Ns[i]-0.95))]
     print mc_results[i]
     print theory_results[i]
-print theory_results[np.argmin(np.abs(386-Ns))]
+print theory_results[np.argmin(np.abs(587-Ns))]
 #Answer: 3.65 sigma locally corresponds to a 2 sigma global significance with 386 trials
 
 fig = plt.figure()
 ax = fig.add_subplot(111)
 ax.plot(Ns, mc_results,linewidth=2.0, color='blue',label='Monte Carlo')
 ax.plot(Ns, theory_results, color='green', linewidth=2.0, label='Theory')
-ax.axvline(386,linestyle='--',linewidth=0.5)
+ax.axvline(565,linestyle='--',linewidth=0.5)
 plt.xlabel('Number of Trials')
 plt.ylabel('Local significance needed for p<0.05')
 plt.legend(loc=2)

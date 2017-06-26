@@ -308,7 +308,6 @@ def find_exposure(e):
 def make_data(distance, mass_init, flux_matrix, filename, gamma_fraction, v_disk, v_dm, z):
     MET_start = 239902981 #Time limits for 3FGL
     MET_end = 365467563
-
     #Random velocity
     y = np.linspace(0, np.pi, 500)
     h = np.sin(y)
@@ -344,7 +343,7 @@ def make_data(distance, mass_init, flux_matrix, filename, gamma_fraction, v_disk
         met += dt
         mass -= dt*alpha(mass)/(mass**2)
         ra_init -= v_ra*dt*360/(parsec_to_km*distance*2*np.pi)
-        dec_init - = v_dec*dt*360/(distance*parsec_to_km*2*np.pi)
+        dec_init -= v_dec*dt*360/(distance*parsec_to_km*2*np.pi)
     print "Starting RA: " + str(ra_init)
     print "Starting DEC: " + str(dec_init)
     g = fits.open(prefix+'/ROIs/'+str(z)+'_bkg.fits')
@@ -507,47 +506,36 @@ def analyze_source_spectrum(flux, flux_err, ra, dec):
 
 #Code to search for proper motion
 
-#not so much a gaussian, but a chi^2 for the fit
-def gaussian_with_motion(x, y, e, t, sigma, x0, y0, vx, vy, distance):
-    #Convert to degrees, and to seconds from zero time instead of Mission Elapsed Time
-    x_vel = 360.0*vx/(2*np.pi*distance*parsec_to_km)
-    y_vel = 360.0*vy/(2*np.pi*distance*parsec_to_km)
-    times = t-MET_start
-    #The extra factor in this expression corrects for the distortion of the coordinate system
-    result = -1.0*np.sqrt((y-(y0+y_vel*times))**2+(np.sin(2*np.pi*y/360.0)*(x-(x0+x_vel*times)))**2)**2/(sigma**2)
+#not so much a gaussian, but a chi^2 for the fit. Now, with even more weight!
+def gaussian_with_motion(x, y, e, t, weights, sigma, x0, y0, vx, vy, distance):
+    vx2 = 360.0*vx/(2*np.pi*distance*parsec_to_km)
+    vy2 = 360.0*vy/(2*np.pi*distance*parsec_to_km)
+    t2 = t-MET_start
+    result = (-1.0*((y-(y0+vy2*t2))**2+(np.sin(2*np.pi*y/360.0)*(x-(x0+vx2*t2)))**2)/(sigma**2))*weights
     return result
 
-#Wrapper function for the chi^2 so that fewer arguments are needed
-#Returns the photon chi^2s sorted in decreasing order, for the npred best photons
 def likelihood(phots, params, distance, npred):
     x0 = params[0]
     y0 = params[1]
     vx = params[2]
     vy = params[3]
-    result = gaussian_with_motion(phots[:,0], phots[:,1], phots[:,2], phots[:,3], phots[:,4], x0, y0, vx, vy, distance)
+    result = gaussian_with_motion(phots[:,0], phots[:,1], phots[:,2], phots[:,3], phots[:,4], phots[:,5], x0, y0, vx, vy, distance)
     return sum(np.sort(result[np.nonzero(result)])[::-1][0:int(npred)])
 
-def likelihood_ratio_test(photons, distance, ra, dec, npred, rad):
-    #Add the PSF information for each photon to the photon array
-    phots = np.zeros((len(photons),5))
-    phots[:,0] = photons[:,0]
-    phots[:,1] = photons[:,1]
-    phots[:,2] = photons[:,2]
-    phots[:,3] = photons[:,3]
-    phots[:,4] = psf_array(photons[:,2])
-
-    #Assume the source is stationary to start
+def likelihood_ratio_test(photons, ra, dec, npred):
+    distance = 0.02
+    phots = np.zeros((len(photons),6))
+    phots[:,0:4] = photons[:,0:4]
+    phots[:,5] = psf_array(photons[:,2])
     params = [ra, dec, 0.0, 0.0]
     bestvx = 0.0
     bestvy = 0.0
-    #Grid resolution
-    res = 9
+    res = 11
     minx = ra-rad
     maxx = ra+rad
     miny = dec-rad
     maxy = dec+rad
     print "Optimizing with 2 free parameters..."
-    #Small loop to do sequential grid searches
     for k in range(5):
         test_likelihood = np.zeros((res, res))
         x0_arr = np.linspace(minx, maxx, res)
@@ -559,7 +547,7 @@ def likelihood_ratio_test(photons, distance, ra, dec, npred, rad):
                 test_likelihood[i,j] = likelihood(phots, params, distance, npred)
         bestx0 = x0_arr[np.mod(int(np.argmax(test_likelihood)/(res**1)),res)]
         besty0 = y0_arr[np.mod(int(np.argmax(test_likelihood)/(res**0)),res)]
-        new_spacing = 0.75*np.mean(np.diff(x0_arr))
+        new_spacing = 0.5*np.mean(np.diff(x0_arr))
         minx = bestx0 - new_spacing
         maxx = bestx0 + new_spacing
         miny = besty0 - new_spacing
@@ -567,12 +555,11 @@ def likelihood_ratio_test(photons, distance, ra, dec, npred, rad):
     print "best x = " +str(bestx0) + " best y = " + str(besty0)
 
     params = [bestx0, besty0, 0.0, 0.0]
-    #Likelihood for 2 free parameters
     f0 = likelihood(phots, params, distance, npred)
 
     print "Optimizing with 4 free parameters..."
-    #Maximize the likelihood by adjusting the values of the 4 degrees of freedom
-    dv = (4.0/elapsed_seconds)*(2*np.pi/360.0)*(0.02*parsec_to_km)
+    #Next, maximize the likelihood by adjusting the values of the 4 degrees of freedom
+    dv = (4.0/elapsed_seconds)*(2*np.pi/360.0)*(distance*parsec_to_km)
     minx = ra-rad
     maxx = ra+rad
     miny = dec-rad
@@ -592,15 +579,16 @@ def likelihood_ratio_test(photons, distance, ra, dec, npred, rad):
             for j in range(res):
                 for k in range(res):
                     for l in range(res):
+                        #startingx = bestx0-(vx_arr[i]*elapsed_seconds*(360/(2*np.pi))/(distance*parsec_to_km))
+                        #startingy = bestx0-(vy_arr[j]*elapsed_seconds*(360/(2*np.pi))/(distance*parsec_to_km))
                         params = [x0_arr[i], y0_arr[j], vx_arr[k], vy_arr[l]]
                         test_likelihood[i, j, k, l] = likelihood(phots, params, distance, npred)
-
         bestx0 = x0_arr[np.mod(int(np.argmax(test_likelihood)/(res**3)),res)]
         besty0 = y0_arr[np.mod(int(np.argmax(test_likelihood)/(res**2)),res)]
         bestvx = vx_arr[np.mod(int(np.argmax(test_likelihood)/(res**1)),res)]
         bestvy = vy_arr[np.mod(int(np.argmax(test_likelihood)/(res**0)),res)]
-        new_spacing_v = 0.75*np.mean(np.diff(vx_arr))
-        new_spacing_x = 0.75*np.mean(np.diff(x0_arr))
+        new_spacing_v = 0.5*np.mean(np.diff(vx_arr))
+        new_spacing_x = 0.5*np.mean(np.diff(x0_arr))
         minx = bestx0 - new_spacing_x
         maxx = bestx0 + new_spacing_x
         miny = besty0 - new_spacing_x
@@ -610,6 +598,7 @@ def likelihood_ratio_test(photons, distance, ra, dec, npred, rad):
         minvy = bestvy-new_spacing_v
         maxvy = bestvy+new_spacing_v
 
+
     f1 = np.max(test_likelihood)
     print "best x = " +str(bestx0) + " best y = " + str(besty0)
     print "bestvx = " + str(bestvx) + " bestvy= " + str(bestvy)
@@ -618,9 +607,11 @@ def likelihood_ratio_test(photons, distance, ra, dec, npred, rad):
     print " "
     return 2*(f1-f0), np.sqrt(bestvx**2+bestvy**2)
 
-def movement_significance(photons, distance, ra, dec, npred, rad):
-    trials = 100
-    ref_value, v_recovered = likelihood_ratio_test(photons, distance, ra, dec, npred, rad)
+
+def movement_significance(photons, ra, dec, npred):
+    trials = 20
+
+    ref_value, v_recovered = likelihood_ratio_test(photons, ra, dec, npred)
     scrambled_values = np.zeros((trials))
     for i in range(trials):
         photons[:,3] = np.random.rand(len(photons[:,3]))*elapsed_seconds+MET_start
@@ -630,6 +621,71 @@ def movement_significance(photons, distance, ra, dec, npred, rad):
     print "Simulation: " + str(np.mean(scrambled_values)) + " +/- " + str(np.std(scrambled_values))
     print str((ref_value-np.mean(scrambled_values))/np.std(scrambled_values)) + " sigma"
     return (ref_value-np.mean(scrambled_values))/np.std(scrambled_values), v_recovered
+
+def perform_likelihood(elow, ehigh, num_ebins, pbh_ra, pbh_dec, prefix, pbh_present=False):
+    subprocess.call('python /nfs/farm/g/glast/u/johnsarc/PBH_Detectability/make3FGLxml.py -G /nfs/farm/g/glast/u/johnsarc/PBH_Detectability/gll_iem_v05.fits -g gll_iem_v05 -GIF True -i iso_source_v05 -r 3.0 -ER 2.0 -I /nfs/farm/g/glast/u/johnsarc/PBH_Detectability/iso_source_v05.txt -e /nfs/farm/g/glast/u/johnsarc/PBH_Detectability/Templates/ -o '+ prefix +'/xmlmodel.xml /nfs/farm/g/glast/u/johnsarc/PBH_Detectability/3FGL.fit '+ prefix +'/raw_data.fits',shell=True)
+    if pbh_present:
+        subprocess.call('python /nfs/farm/g/glast/u/johnsarc/PBH_Detectability/add_pbh_src_logparabola.py '+ str(pbh_ra) + ' ' + str(pbh_dec) + ' ' + prefix, shell=True)
+        
+    #run gtbin
+    evtbin['evfile'] = prefix+'/raw_data.fits'
+    evtbin['outfile'] = prefix+'/ccube.fits'
+    evtbin['ebinalg'] = 'LOG'
+    evtbin['emin'] = elow
+    evtbin['emax'] = ehigh
+    evtbin['enumbins'] = num_ebins
+    evtbin['algorithm'] = 'ccube'
+    evtbin['coordsys'] = 'CEL'
+    evtbin['nxpix'] = 70
+    evtbin['nypix'] = 70
+    evtbin['binsz'] = 0.1
+    evtbin['xref'] = pbh_ra
+    evtbin['yref'] = pbh_dec
+    evtbin['axisrot'] = 0.0
+    evtbin['proj'] = 'AIT'
+    evtbin.run()
+
+    #run gtexpcube2
+    gtexpcube2['infile'] = prefix+'/ltcube.fits'
+    gtexpcube2['outfile'] = prefix+'/exposure.fits'
+    gtexpcube2['cmap'] = prefix+'/ccube.fits'
+    gtexpcube2['irfs'] = 'P7REP_SOURCE_V15'
+    gtexpcube2.run()
+    
+    #run gtsrcmaps
+    srcMaps['expcube'] = prefix+'/ltcube.fits'
+    srcMaps['cmap'] = prefix+'/ccube.fits'
+    srcMaps['srcmdl'] = prefix+'/xmlmodel.xml'
+    srcMaps['bexpmap'] = prefix+'/exposure.fits'
+    srcMaps['outfile'] = prefix+'/srcmap.fits'
+    srcMaps['rfactor'] = 4
+    srcMaps['emapbnds'] = 'no'
+    srcMaps.run()
+    
+    #run gtlike
+    obs = BinnedObs(srcMaps=prefix+'/srcmap.fits', expCube='/nfs/farm/g/glast/u/johnsarc/PBH_Detectability/ltcube.fits', binnedExpMap=prefix+'/exposure.fits', irfs='P7REP_SOURCE_V15')
+    like = BinnedAnalysis(obs, prefix+'/xmlmodel.xml', optimizer='NEWMINUIT')
+    like.tol=1e-8
+    like.fit(verbosity=0,covar=True)
+    
+    return like
+    
+def make_model_cube(prefix, like):
+    f = pyfits.open(prefix+'/srcmap.fits')
+    model_map = np.zeros((70,70,10))
+    for source in like.sourceNames():
+        print "source = " + str(source)
+        print like._srcCnts(source)
+        for j in range(3,len(f)):
+            if source == f[j].header['EXTNAME']:
+                the_index = j
+            
+        num_photons = like._srcCnts(source)
+        model_counts = num_photons*f[the_index].data/np.sum(np.sum(f[the_index].data, axis=1), axis=2)
+        my_arr += model_counts
+    f.close()
+    return my_arr
+
 
 # "Flux Matrix" = lookup table for the spectrum of the PBH at the source. Interpolated from MacGibbon 1990 paper
 #Should have temperatures as rows, and energy bins as columns. Gives the total flux emitted by the PBH in ph/s
@@ -642,46 +698,19 @@ file = open(prefix+'/integrated_flux_matrix.pk1', 'rb')
 integrated_flux_matrix = pickle.load(file)
 file.close()
 
-def test_spectral_model(prefix, pbh_ra, pbh_dec):
-
-    subprocess.call('python /nfs/farm/g/glast/u/johnsarc/PBH_Detectability/make3FGLxml.py -G /nfs/farm/g/glast/u/johnsarc/PBH_Detectability/gll_iem_v05.fits -g gll_iem_v05 -GIF True -i iso_source_v05 -r 3.0 -ER 2.0 -I /nfs/farm/g/glast/u/johnsarc/PBH_Detectability/iso_source_v05.txt -e /nfs/farm/g/glast/u/johnsarc/PBH_Detectability/Templates/ -o '+ prefix +'/xmlmodel.xml /nfs/farm/g/glast/u/johnsarc/PBH_Detectability/3FGL.fit '+ prefix +'/raw_data.fits',shell=True)
-    subprocess.call('python /nfs/farm/g/glast/u/johnsarc/PBH_Detectability/add_pbh_src_logparabola.py '+ str(pbh_ra) + ' ' + str(pbh_dec) + ' ' + prefix, shell=True)
-
-    #srcMaps['scfile'] = '/nfs/farm/g/glast/u/johnsarc/PBH_Detectability/SC.fits'
-    srcMaps['expcube'] = prefix+'/ltcube.fits'
-    srcMaps['cmap'] = prefix+'/ccube.fits'
-    srcMaps['srcmdl'] = prefix+'/xmlmodel.xml'
-    srcMaps['bexpmap'] = prefix+'/exposure.fits'
-    srcMaps['outfile'] = prefix+'/srcmap.fits'
-    srcMaps['rfactor'] = 4
-    srcMaps['emapbnds'] = 'no'
-    srcMaps.run()
-
-    obs = BinnedObs(srcMaps=prefix+'/srcmap.fits', expCube=prefix+'/ltcube.fits',binnedExpMap=prefix+'/exposure.fits', irfs='P7REP_SOURCE_V15')#
-    like1 = BinnedAnalysis(obs, prefix+'/xmlmodel.xml', optimizer='MINUIT')
-    like1.tol = 0.1
-    like1obj = pyLike.Minuit(like1.logLike)
-    like1.fit(verbosity=3,covar=True,optObject=like1obj)
-    like1.logLike.writeXml(prefix+'/fit1.xml')
-    like2 = BinnedAnalysis(obs, prefix+'/fit1.xml', optimizer='NewMinuit')
-    like2.tol = 1e-8
-    like2obj = pyLike.NewMinuit(like2.logLike)
-    like2.fit(verbosity=3,covar=True,optObject=like2obj)
-    like2.logLike.writeXml(prefix+'/fit2.xml')
-    convergence = like2obj.getRetCode()
-
-    ts = like2.Ts('PBH_Source')
+def test_spectral_model(like):
+    ts = like.Ts('PBH_Source')
     if ts>25.0:
-        source_flux = np.array([like2.flux('PBH_Source',emin=100.0, emax=300.0), like2.flux('PBH_Source',emin=300.0, emax= 1000.0), like2.flux('PBH_Source',emin=1000.0, emax= 3000.0), like2.flux('PBH_Source',emin=3000.0, emax= 10000.0), like2.flux('PBH_Source',emin=10000.0, emax=100000.0)],'d')
-        source_flux_unc = np.array([like2.fluxError('PBH_Source',emin=100.0, emax= 300.0), like2.fluxError('PBH_Source',emin=300.0, emax= 1000.0), like2.fluxError('PBH_Source',emin=1000.0, emax= 3000.0), like2.fluxError('PBH_Source',emin=3000.0, emax= 10000.0), like2.fluxError('PBH_Source',emin=10000.0, emax=100000.0)],'d')
+        source_flux = np.array([like.flux('PBH_Source',emin=100.0, emax=300.0), like.flux('PBH_Source',emin=300.0, emax= 1000.0), like.flux('PBH_Source',emin=1000.0, emax= 3000.0), like.flux('PBH_Source',emin=3000.0, emax= 10000.0), like.flux('PBH_Source',emin=10000.0, emax=100000.0)],'d')
+        source_flux_unc = np.array([like.fluxError('PBH_Source',emin=100.0, emax= 300.0), like.fluxError('PBH_Source',emin=300.0, emax= 1000.0), like.fluxError('PBH_Source',emin=1000.0, emax= 3000.0), like.fluxError('PBH_Source',emin=3000.0, emax= 10000.0), like.fluxError('PBH_Source',emin=10000.0, emax=100000.0)],'d')
         spectral_match, reconstructed_temperature, chi2value = analyze_source_spectrum(source_flux, source_flux_unc, pbh_ra, pbh_dec)
     else:
         spectral_match = False
         chi2value = 0.0
-    npred = like2.NpredValue('PBH_Source')
-    npred1000 = np.sum(like1._srcCnts('PBH_Source')[np.argmin(np.abs(like2.energies-1000.0)):])
+    npred = like.NpredValue('PBH_Source')
+    npred1000 = np.sum(like._srcCnts('PBH_Source')[np.argmin(np.abs(like.energies-1000.0)):])
 
-    return ts, spectral_match, chi2value, npred, npred1000, convergence
+    return ts, spectral_match, chi2value, npred, npred1000
 
 def simulate_and_analyze(temp, dist, gamma_fraction, v_disk, v_dm, z, j):
     source_detected = False
@@ -694,32 +723,11 @@ def simulate_and_analyze(temp, dist, gamma_fraction, v_disk, v_dm, z, j):
     pbh_ra, pbh_dec, v_tang, ra_init, dec_init, ra_final, dec_final = make_data(dist, M(temp), flux_matrix, filename, gamma_fraction, v_disk, v_dm, j)
     print "Done!"
 
-    evtbin['evfile'] = prefix+'/raw_data.fits'
-    evtbin['outfile'] = prefix+'/ccube.fits'
-    evtbin['ebinalg'] = 'LOG'
-    evtbin['emin'] = 100.0
-    evtbin['emax'] = 100000.0
-    evtbin['enumbins'] = 30
-    evtbin['algorithm'] = 'ccube'
-    evtbin['coordsys'] = 'CEL'
-    evtbin['nxpix'] = 100
-    evtbin['nypix'] = 100
-    evtbin['binsz'] = 0.1
-    evtbin['xref'] = pbh_ra
-    evtbin['yref'] = pbh_dec
-    evtbin['axisrot'] = 0.0
-    evtbin['proj'] = 'AIT'
-    evtbin.run()
-
-    gtexpcube2['infile'] = prefix+'/ltcube.fits'
-    gtexpcube2['outfile'] = prefix+'/exposure.fits'
-    gtexpcube2['cmap'] = prefix+'/ccube.fits'
-    gtexpcube2['irfs'] = 'P7REP_SOURCE_V15'
-    gtexpcube2.run()
+    like = perform_likelihood(100, 100000, 10, pbh_ra, pbh_dec, prefix, pbh_present=True)
 
     chi2value = 0.0
 
-    ts, spectral_match, chi2value, npred, npred1000, convergence = test_spectral_model( prefix, pbh_ra, pbh_dec)
+    ts, spectral_match, chi2value, npred, npred1000 = test_spectral_model(like)
     print "TS: " + str(ts)
     print "Spectral match: " + str(spectral_match)
     print "npred = " + str(npred)
@@ -733,10 +741,10 @@ def simulate_and_analyze(temp, dist, gamma_fraction, v_disk, v_dm, z, j):
 
         from gt_apps import filter
         filter['infile'] = prefix+'/raw_data.fits'
-        filter['outfile'] = prefix+'/ROI.fits'
+        filter['outfile'] = prefix+'/high_e_ROI.fits'
         filter['ra'] = pbh_ra
         filter['dec'] = pbh_dec
-        filter['rad'] = 3
+        filter['rad'] = 5.0
         filter['tmin'] = MET_start
         filter['tmax'] = MET_end
         filter['emin'] = 1000.0
@@ -744,7 +752,7 @@ def simulate_and_analyze(temp, dist, gamma_fraction, v_disk, v_dm, z, j):
         filter.run()
 
 
-        g = pyfits.open(prefix+'/ROI.fits')
+        g = pyfits.open(prefix+'/high_e_ROI.fits')
         photons = np.zeros((len(g[1].data),4))
         for q in range(len(g[1].data)):
             photons[q,0] = g[1].data[q]['RA']
@@ -752,11 +760,31 @@ def simulate_and_analyze(temp, dist, gamma_fraction, v_disk, v_dm, z, j):
             photons[q,2] = g[1].data[q]['ENERGY']
             photons[q,3] = g[1].data[q]['TIME']
         g.close()
-        rad = 0.5
-        sig, v_recovered = movement_significance(photons, dist, 0.5*(ra_init+ra_final), 0.5*(dec_init+dec_final), npred1000, rad)
+
+        #Load disk model
+        file = open('/nfs/farm/g/glast/u/johnsarc/PBH_Detectability/disk_component.pk1', 'rb')
+        g = pickle.load(file)
+        file.close()
+        like = perform_likelihood(1000, 100000, 5, pbh_ra, pbh_dec, prefix, pbh_present=False)
+
+        my_arr = make_model_cube(prefix,like)
+        #Assign weights to each photon
+        prob_array = g[0].data*npred/my_arr
+        prob_photons= np.zeros((len(photons), 5))
+        prob_photons[:,0:3] = photons
+        e_array = 10**np.linspace(3, 5, 5)
+        for i in range(len(photons)):
+            x_index = int((photons[i,0]-pbh_ra)/0.1+34)
+            y_index = int((photons[i,1]-pbh_dec)/0.1+34)
+            z_index = np.argmin(np.abs(e_array-photons[i,2]))
+            prob_photons[i, 4] = prob_array[z_index,x_index, y_index]
+    
+
+        #run the algorithm
+        significance, v_recovered = movement_significance(prob_photons, ra, dec, npred)
 
 
-        if sig>3.63:
+        if sig>4.0:
             print "Significant proper motion!"
             motion_detected = True
 
@@ -766,17 +794,17 @@ def simulate_and_analyze(temp, dist, gamma_fraction, v_disk, v_dm, z, j):
     #Save results to a file
     if z == 0:
         file = open('/nfs/farm/g/glast/u/johnsarc/PBH_Detectability/results_low/'+os.environ['LSB_JOBID']+"_"+str(z)+'.pk1','wb')
-        pickle.dump({"Temperature":temp, "Distance":dist, "Convergence":convergence, "Source_Detected":source_detected, "Motion_Detected":motion_detected, "GLON":SkyCoord(ra=pbh_ra*u.degree, dec=pbh_dec*u.degree,frame='icrs').galactic.l.degree, "GLAT":SkyCoord(ra=pbh_ra*u.degree, dec=pbh_dec*u.degree,frame='icrs').galactic.b.degree, "V_Recovered":v_recovered , "Spectral_Match": spectral_match, "MIN_CHI2":chi2value, "V_True": v_tang, "TS":ts}, file)
+        pickle.dump({"Temperature":temp, "Distance":dist, "Convergence":convergence, "Source_Detected":source_detected, "Motion_Detected":motion_detected, "GLON":SkyCoord(ra=pbh_ra*u.degree, dec=pbh_dec*u.degree,frame='icrs').galactic.l.degree, "GLAT":SkyCoord(ra=pbh_ra*u.degree, dec=pbh_dec*u.degree,frame='icrs').galactic.b.degree, "V_Recovered":v_recovered , "Spectral_Match": spectral_match, "MIN_CHI2":chi2value, "V_True": v_tang, "TS":ts, "Sig": sig}, file)
         file.close()
 
     if z == 1:
         file = open('/nfs/farm/g/glast/u/johnsarc/PBH_Detectability/results/'+os.environ['LSB_JOBID']+"_"+str(z)+'.pk1','wb')
-        pickle.dump({"Temperature":temp, "Distance":dist, "Convergence":convergence, "Source_Detected":source_detected, "Motion_Detected":motion_detected, "GLON":SkyCoord(ra=pbh_ra*u.degree, dec=pbh_dec*u.degree,frame='icrs').galactic.l.degree, "GLAT":SkyCoord(ra=pbh_ra*u.degree, dec=pbh_dec*u.degree,frame='icrs').galactic.b.degree, "V_Recovered":v_recovered , "Spectral_Match": spectral_match, "MIN_CHI2":chi2value, "V_True": v_tang, "TS":ts}, file)
+        pickle.dump({"Temperature":temp, "Distance":dist, "Convergence":convergence, "Source_Detected":source_detected, "Motion_Detected":motion_detected, "GLON":SkyCoord(ra=pbh_ra*u.degree, dec=pbh_dec*u.degree,frame='icrs').galactic.l.degree, "GLAT":SkyCoord(ra=pbh_ra*u.degree, dec=pbh_dec*u.degree,frame='icrs').galactic.b.degree, "V_Recovered":v_recovered , "Spectral_Match": spectral_match, "MIN_CHI2":chi2value, "V_True": v_tang, "TS":ts, "Sig": sig}, file)
         file.close()
 
     if z == 2:
         file = open('/nfs/farm/g/glast/u/johnsarc/PBH_Detectability/results_high/'+os.environ['LSB_JOBID']+"_"+str(z)+'.pk1','wb')
-        pickle.dump({"Temperature":temp, "Distance":dist, "Convergence":convergence, "Source_Detected":source_detected, "Motion_Detected":motion_detected, "GLON":SkyCoord(ra=pbh_ra*u.degree, dec=pbh_dec*u.degree,frame='icrs').galactic.l.degree, "GLAT":SkyCoord(ra=pbh_ra*u.degree, dec=pbh_dec*u.degree,frame='icrs').galactic.b.degree, "V_Recovered":v_recovered , "Spectral_Match": spectral_match, "MIN_CHI2":chi2value, "V_True": v_tang, "TS":ts}, file)
+        pickle.dump({"Temperature":temp, "Distance":dist, "Convergence":convergence, "Source_Detected":source_detected, "Motion_Detected":motion_detected, "GLON":SkyCoord(ra=pbh_ra*u.degree, dec=pbh_dec*u.degree,frame='icrs').galactic.l.degree, "GLAT":SkyCoord(ra=pbh_ra*u.degree, dec=pbh_dec*u.degree,frame='icrs').galactic.b.degree, "V_Recovered":v_recovered , "Spectral_Match": spectral_match, "MIN_CHI2":chi2value, "V_True": v_tang, "TS":ts, "Sig": sig}, file)
         file.close()
 
 
@@ -786,13 +814,13 @@ def simulate_and_analyze(temp, dist, gamma_fraction, v_disk, v_dm, z, j):
 #2: Distance in pc
 #3: batch or local
 #4: which model are we using (worst-case, baseline, best-case)
-#5: Random integer between 0 and 100
+#5: Random integer between 0 and 100 (determines spot in the sky)
 print "Temperature = " + str(float(sys.argv[1])) + " Distance = " + str(float(sys.argv[2]))
 
 #To get the upper and lower confidence intervals for the limit
 gamma_fraction = np.array([0.25/0.35, 1.0, 0.45/0.35],'d')
-v_disk = np.array([300.0, 250.0, 100.0],'d')
-v_dm = np.array([350.0, 270.0, 150.0],'d')
+v_disk = np.array([300.0, 50.0, 100.0],'d')
+v_dm = np.array([350.0, 70.0, 150.0],'d')
 z = int(sys.argv[4])
 j = int(sys.argv[5])
 simulate_and_analyze(float(sys.argv[1]),float(sys.argv[2]), gamma_fraction[z], v_disk[z], v_dm[z], z, j)
