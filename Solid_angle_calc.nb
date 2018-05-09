@@ -1,0 +1,139 @@
+(* Content-type: application/vnd.wolfram.mathematica *)
+
+(*** Wolfram Notebook File ***)
+(* http://www.wolfram.com/nb *)
+
+(* CreatedBy='Mathematica 9.0' *)
+
+(*CacheID: 234*)
+(* Internal cache information:
+NotebookFileLineBreakTest
+NotebookFileLineBreakTest
+NotebookDataPosition[       157,          7]
+NotebookDataLength[      3717,        129]
+NotebookOptionsPosition[      3176,        104]
+NotebookOutlinePosition[      3532,        120]
+CellTagsIndexPosition[      3489,        117]
+WindowFrame->Normal*)
+
+(* Beginning of Notebook Content *)
+Notebook[{
+
+Cell[CellGroupData[{
+Cell[BoxData[
+ RowBox[{"Integrate", "[", 
+  RowBox[{
+   RowBox[{"Integrate", "[", 
+    RowBox[{
+     RowBox[{"Integrate", "[", 
+      RowBox[{
+       RowBox[{
+        RowBox[{"r", "^", "2"}], "*", 
+        RowBox[{"Sin", "[", "t", "]"}]}], ",", 
+       RowBox[{"{", 
+        RowBox[{"r", ",", "0", ",", "1"}], "}"}]}], "]"}], ",", 
+     RowBox[{"{", 
+      RowBox[{"t", ",", "0", ",", " ", "Pi"}], "}"}]}], "]"}], ",", 
+   RowBox[{"{", 
+    RowBox[{"p", ",", " ", "0", ",", " ", 
+     RowBox[{"2.0", "*", "Pi"}]}], "}"}]}], "]"}]], "Input",
+ CellChangeTimes->{{3.70871668004773*^9, 3.708716739276801*^9}}],
+
+Cell[BoxData["4.1887902047863905`"], "Output",
+ CellChangeTimes->{3.7087167448649263`*^9}]
+}, Open  ]],
+
+Cell[CellGroupData[{
+
+Cell[BoxData[
+ RowBox[{
+  RowBox[{"4.0", "/", "3"}], "*", "Pi"}]], "Input",
+ CellChangeTimes->{{3.70871675042277*^9, 3.7087167785849323`*^9}}],
+
+Cell[BoxData["4.1887902047863905`"], "Output",
+ CellChangeTimes->{{3.708716754580536*^9, 3.708716779053637*^9}}]
+}, Open  ]],
+
+Cell[CellGroupData[{
+
+Cell[BoxData[
+ RowBox[{"1.0", "/", 
+  RowBox[{"(", 
+   RowBox[{"2.0", "*", 
+    RowBox[{
+     RowBox[{"Integrate", "[", 
+      RowBox[{
+       RowBox[{"Integrate", "[", 
+        RowBox[{
+         RowBox[{"Integrate", "[", 
+          RowBox[{
+           RowBox[{
+            RowBox[{"r", "^", "2"}], "*", 
+            RowBox[{"Sin", "[", "t", "]"}]}], ",", 
+           RowBox[{"{", 
+            RowBox[{"r", ",", "0", ",", "1"}], "}"}]}], "]"}], ",", 
+         RowBox[{"{", 
+          RowBox[{"t", ",", "0", ",", " ", 
+           RowBox[{"4", "*", 
+            RowBox[{"Pi", "/", "9"}]}]}], "}"}]}], "]"}], ",", 
+       RowBox[{"{", 
+        RowBox[{"p", ",", " ", "0", ",", " ", 
+         RowBox[{"2.0", "*", "Pi"}]}], "}"}]}], "]"}], "/", 
+     RowBox[{"Integrate", "[", 
+      RowBox[{
+       RowBox[{"Integrate", "[", 
+        RowBox[{
+         RowBox[{"Integrate", "[", 
+          RowBox[{
+           RowBox[{
+            RowBox[{"r", "^", "2"}], "*", 
+            RowBox[{"Sin", "[", "t", "]"}]}], ",", 
+           RowBox[{"{", 
+            RowBox[{"r", ",", "0", ",", "1"}], "}"}]}], "]"}], ",", 
+         RowBox[{"{", 
+          RowBox[{"t", ",", "0", ",", " ", "Pi"}], "}"}]}], "]"}], ",", 
+       RowBox[{"{", 
+        RowBox[{"p", ",", " ", "0", ",", " ", 
+         RowBox[{"2.0", "*", "Pi"}]}], "}"}]}], "]"}]}]}], ")"}]}]], "Input",
+ CellChangeTimes->{{3.708716792492022*^9, 3.7087168691781693`*^9}}],
+
+Cell[BoxData["1.210138312730603`"], "Output",
+ CellChangeTimes->{{3.708716798014344*^9, 3.708716818104816*^9}, 
+   3.708716869843012*^9}]
+}, Open  ]]
+},
+WindowSize->{740, 751},
+WindowMargins->{{Automatic, 261}, {Automatic, 0}},
+FrontEndVersion->"9.0 for Mac OS X x86 (32-bit, 64-bit Kernel) (January 25, \
+2013)",
+StyleDefinitions->"Default.nb"
+]
+(* End of Notebook Content *)
+
+(* Internal cache information *)
+(*CellTagsOutline
+CellTagsIndex->{}
+*)
+(*CellTagsIndex
+CellTagsIndex->{}
+*)
+(*NotebookFileOutline
+Notebook[{
+Cell[CellGroupData[{
+Cell[579, 22, 605, 17, 46, "Input"],
+Cell[1187, 41, 90, 1, 28, "Output"]
+}, Open  ]],
+Cell[CellGroupData[{
+Cell[1314, 47, 142, 3, 28, "Input"],
+Cell[1459, 52, 112, 1, 28, "Output"]
+}, Open  ]],
+Cell[CellGroupData[{
+Cell[1608, 58, 1412, 39, 97, "Input"],
+Cell[3023, 99, 137, 2, 62, "Output"]
+}, Open  ]]
+}
+]
+*)
+
+(* End of internal cache information *)
+

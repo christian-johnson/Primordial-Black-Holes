@@ -15,7 +15,7 @@ from astropy.coordinates import SkyCoord
 from astropy.table import Table
 from astropy.io import fits
 import pickle
-from math import sin, cos, asin, acos, radians
+from math import sin, cos, asin, acos, radians, ceil
 from scipy.misc import factorial
 import sys
 import subprocess
@@ -24,7 +24,7 @@ from gt_apps import gtexpcube2
 from gt_apps import srcMaps
 from BinnedAnalysis import *
 import pyLikelihood as pyLike
-
+import extension as ex
 #import matplotlib.pyplot as plt
 print "done!"
 
@@ -199,124 +199,6 @@ def analyze_source_spectrum(flux, flux_err, ra, dec):
         reconstructed_temp = 0.0
     return spectral_match, reconstructed_temp, min(chi2_values)
 
-#not so much a gaussian, but a chi^2 for the fit. Now, with even more weight!
-def gaussian_with_motion(x, y, e, t, weights, sigma, x0, y0, vx, vy, distance):
-    vx2 = 360.0*vx/(2*np.pi*distance*parsec_to_km)
-    vy2 = 360.0*vy/(2*np.pi*distance*parsec_to_km)
-    t2 = t-MET_start
-    result = (-1.0*((y-(y0+vy2*t2))**2+(np.sin(2*np.pi*y/360.0)*(x-(x0+vx2*t2)))**2)/(sigma**2))*(1.0-weights)
-    return result
-
-def likelihood(phots, params, distance, npred):
-    x0 = params[0]
-    y0 = params[1]
-    vx = params[2]
-    vy = params[3]
-    result = gaussian_with_motion(phots[:,0], phots[:,1], phots[:,2], phots[:,3], phots[:,4], phots[:,5], x0, y0, vx, vy, distance)
-    return sum(np.sort(result[np.nonzero(result)])[::-1][0:int(npred)])
-
-def likelihood_ratio_test(photons, ra, dec, npred):
-    distance = 0.02
-    rad = 1.0
-    phots = np.zeros((len(photons),6))
-    phots[:,0:4] = photons[:,0:4]
-    phots[:,5] = psf_array(photons[:,2])
-    params = [ra, dec, 0.0, 0.0]
-    bestvx = 0.0
-    bestvy = 0.0
-    res = 11
-    minx = ra-rad
-    maxx = ra+rad
-    miny = dec-rad
-    maxy = dec+rad
-    print "Optimizing with 2 free parameters..."
-    for k in range(5):
-        test_likelihood = np.zeros((res, res))
-        x0_arr = np.linspace(minx, maxx, res)
-        y0_arr = np.linspace(miny, maxy, res)
-
-        for i in range(res):
-            for j in range(res):
-                params = [x0_arr[i], y0_arr[j], 0.0, 0.0]
-                test_likelihood[i,j] = likelihood(phots, params, distance, npred)
-        bestx0 = x0_arr[np.mod(int(np.argmax(test_likelihood)/(res**1)),res)]
-        besty0 = y0_arr[np.mod(int(np.argmax(test_likelihood)/(res**0)),res)]
-        new_spacing = 0.5*np.mean(np.diff(x0_arr))
-        minx = bestx0 - new_spacing
-        maxx = bestx0 + new_spacing
-        miny = besty0 - new_spacing
-        maxy = besty0 + new_spacing
-    print "best x = " +str(bestx0) + " best y = " + str(besty0)
-
-    params = [bestx0, besty0, 0.0, 0.0]
-    f0 = likelihood(phots, params, distance, npred)
-
-    print "Optimizing with 4 free parameters..."
-    #Next, maximize the likelihood by adjusting the values of the 4 degrees of freedom
-    dv = (4.0/elapsed_seconds)*(2*np.pi/360.0)*(distance*parsec_to_km)
-    minx = ra-rad
-    maxx = ra+rad
-    miny = dec-rad
-    maxy = dec+rad
-    minvx = -1.0*dv
-    maxvx = dv
-    minvy = -1.0*dv
-    maxvy = dv
-    for q in range(5):
-        test_likelihood = np.zeros((res, res, res, res))
-        x0_arr = np.linspace(minx, maxx, res)
-        y0_arr = np.linspace(miny, maxy, res)
-        vx_arr = np.linspace(minvx, maxvx, res)
-        vy_arr = np.linspace(minvy, maxvy, res)
-
-        for i in range(res):
-            for j in range(res):
-                for k in range(res):
-                    for l in range(res):
-                        #startingx = bestx0-(vx_arr[i]*elapsed_seconds*(360/(2*np.pi))/(distance*parsec_to_km))
-                        #startingy = bestx0-(vy_arr[j]*elapsed_seconds*(360/(2*np.pi))/(distance*parsec_to_km))
-                        params = [x0_arr[i], y0_arr[j], vx_arr[k], vy_arr[l]]
-                        test_likelihood[i, j, k, l] = likelihood(phots, params, distance, npred)
-        bestx0 = x0_arr[np.mod(int(np.argmax(test_likelihood)/(res**3)),res)]
-        besty0 = y0_arr[np.mod(int(np.argmax(test_likelihood)/(res**2)),res)]
-        bestvx = vx_arr[np.mod(int(np.argmax(test_likelihood)/(res**1)),res)]
-        bestvy = vy_arr[np.mod(int(np.argmax(test_likelihood)/(res**0)),res)]
-        new_spacing_v = 0.5*np.mean(np.diff(vx_arr))
-        new_spacing_x = 0.5*np.mean(np.diff(x0_arr))
-        minx = bestx0 - new_spacing_x
-        maxx = bestx0 + new_spacing_x
-        miny = besty0 - new_spacing_x
-        maxy = besty0 + new_spacing_x
-        minvx = bestvx-new_spacing_v
-        maxvx = bestvx+new_spacing_v
-        minvy = bestvy-new_spacing_v
-        maxvy = bestvy+new_spacing_v
-
-
-    f1 = np.max(test_likelihood)
-    print "best x = " +str(bestx0) + " best y = " + str(besty0)
-    print "bestvx = " + str(bestvx) + " bestvy= " + str(bestvy)
-    print "f0 = " + str(f0)
-    print "f1 = " + str(f1)
-    print " "
-    return 2*(f1-f0), np.sqrt(bestvx**2+bestvy**2)
-
-
-def movement_significance(photons, ra, dec, npred):
-    trials = 20
-
-    ref_value, v_recovered = likelihood_ratio_test(photons, ra, dec, npred)
-    scrambled_values = np.zeros((trials))
-    for i in range(trials):
-        photons[:,3] = np.random.rand(len(photons[:,3]))*elapsed_seconds+MET_start
-        scrambled_values[i], v_recovered_rand = likelihood_ratio_test(photons, ra, dec, npred)
-
-    print "Data: " + str(ref_value)
-    print "Simulation: " + str(np.mean(scrambled_values)) + " +/- " + str(np.std(scrambled_values))
-    print str((ref_value-np.mean(scrambled_values))/np.std(scrambled_values)) + " sigma"
-    return (ref_value-np.mean(scrambled_values))/np.std(scrambled_values), v_recovered
-
-
 
 # "Flux Matrix" = lookup table for the spectrum of the PBH at the source. Interpolated from MacGibbon 1990 paper
 #Should have temperatures as rows, and energy bins as columns. Gives the total flux emitted by the PBH in ph/s
@@ -329,7 +211,7 @@ integrated_flux_matrix = pickle.load(file)
 file.close()
 
 def perform_likelihood(elow, ehigh, num_ebins, pbh_ra, pbh_dec, prefix, src_name, pbh_present=False):
-    subprocess.call('python /nfs/farm/g/glast/u/johnsarc/PBH_Detectability/make3FGLxml.py -G /nfs/farm/g/glast/u/johnsarc/PBH_Detectability/gll_iem_v05.fits -g gll_iem_v05 -GIF True -i iso_source_v05 -r 3.0 -ER 2.0 -I /nfs/farm/g/glast/u/johnsarc/PBH_Detectability/iso_source_v05.txt -e /nfs/farm/g/glast/u/johnsarc/PBH_Detectability/Templates/ -o '+ prefix +'/xmlmodel.xml /nfs/farm/g/glast/u/johnsarc/PBH_Detectability/3FGL.fit '+ prefix+'/'+src_name+'_raw.fits',shell=True)
+    subprocess.call('python /nfs/farm/g/glast/u/johnsarc/PBH_Detectability/make3FGLxml.py -G /nfs/farm/g/glast/u/johnsarc/PBH_Detectability/gll_iem_v05.fits -g gll_iem_v05 -GIF True -i iso_source_v05 -r 2.0 -ER 1.0 -I /nfs/farm/g/glast/u/johnsarc/PBH_Detectability/iso_source_v05.txt -e /nfs/farm/g/glast/u/johnsarc/PBH_Detectability/Templates/ -o '+ prefix +'/xmlmodel.xml /nfs/farm/g/glast/u/johnsarc/PBH_Detectability/3FGL.fit '+ prefix+'/'+src_name+'_raw.fits',shell=True)
     if pbh_present:
         subprocess.call('python /nfs/farm/g/glast/u/johnsarc/PBH_Detectability/add_pbh_src_logparabola.py '+ str(pbh_ra) + ' ' + str(pbh_dec) + ' ' + prefix, shell=True)
         
@@ -370,31 +252,36 @@ def perform_likelihood(elow, ehigh, num_ebins, pbh_ra, pbh_dec, prefix, src_name
     
     #run gtlike
     obs = BinnedObs(srcMaps=prefix+'/srcmap.fits', expCube='/nfs/farm/g/glast/u/johnsarc/PBH_Detectability/ltcube.fits', binnedExpMap=prefix+'/exposure.fits', irfs='P7REP_SOURCE_V15')
-    like = BinnedAnalysis(obs, prefix+'/xmlmodel.xml', optimizer='NEWMINUIT')
-    like.tol=1e-8
-    like.fit(verbosity=0,covar=True)
+    like = BinnedAnalysis(obs, prefix+'/xmlmodel.xml', optimizer='MINUIT')
+    like.tol=1e-9
+    like.fit(verbosity=0,covar=False)
         
     return like
 
-
-def make_model_cube(prefix, like, src_name):
+def make_model_cube(prefix, like, candidate_source):
     f = pyfits.open(prefix+'/srcmap.fits')
     model_map = np.zeros((3,70,70))
+    ps_map = np.zeros((3,70,70))
     for source in like.sourceNames():
-        if source != src_name:
+        if candidate_source not in source:
             print "source = " + str(source)
             print like._srcCnts(source)
             for j in range(3,len(f)):
                 if source == f[j].header['EXTNAME']:
                     the_index = j
-            
             num_photons = like._srcCnts(source)
             model_counts = np.zeros((3,70,70))
+            ps_counts = np.zeros((3,70,70))
+    
             for i in range(3):
-                model_counts[i] = num_photons[i]*f[the_index].data[i,:,:]/np.sum(np.sum(f[the_index].data[i,:,:]))
+                if np.sum(np.sum(f[the_index].data[i,:,:]))>0.0:
+                    model_counts[i] = num_photons[i]*f[the_index].data[i,:,:]/np.sum(np.sum(f[the_index].data[i,:,:]))
+                    if source != 'gll_iem_v05' and source != 'iso_source_v05':
+                        ps_counts[i] = num_photons[i]*f[the_index].data[i,:,:]/np.sum(np.sum(f[the_index].data[i,:,:]))
             model_map += model_counts
+            ps_map += ps_counts
     f.close()
-    return model_map
+    return model_map, ps_map
 
 def analyze_a_source(src_name, npred, pbh_ra, pbh_dec, prefix, npred1000):
     #First, check the source spectrum
@@ -416,17 +303,40 @@ def analyze_a_source(src_name, npred, pbh_ra, pbh_dec, prefix, npred1000):
         photons[q,3] = g[1].data[q]['TIME']
     g.close()
 
+    
     #Load disk model
     file = open('/nfs/farm/g/glast/u/johnsarc/PBH_Detectability/disk_srcmap.pk1', 'rb')
     g = pickle.load(file)
     file.close()
+    #Normalize the PS model
+    for i in range(3):
+        g[i] *= 1.0/np.sum(np.sum(g[i]))
+    
     like = perform_likelihood(1000, 100000, 3, pbh_ra, pbh_dec, prefix, src_name, pbh_present=False)
 
-    my_arr = make_model_cube(prefix,like, src_name)
+    my_arr, ps_arr = make_model_cube(prefix,like,src_name)
+    
+    #Make sure the point source array is only nonzero outside of a certain radius- this will prevent the candidate from being cut off
+    rad = 1.0 #Degrees
+    mask_array = np.zeros((70, 70))
+    for i in range(70):
+        for j in range(70):
+            if np.sqrt((0.1*(i-34.5))**2+(0.1*(j-34.5))**2)>rad:
+                mask_array[i,j] = 1.0
+        
     #Assign weights to each photon
     prob_array = np.zeros((3,70,70))
     for i in range(3):
+        #Probability array- needs to be clipped to cut out point sources
         prob_array[i] = g[i]*npred1000[i]/(my_arr[i]+g[i]*npred1000[i])
+        
+        #Cutoff: any pixel with higher than this fraction PS is clipped to probability 0
+        cutoff = 0.1
+        f = np.nonzero(np.clip((mask_array*ps_arr[i])/my_arr[i]+1.0-cutoff, 0.0, 1.0)-1.0)
+        h = np.zeros((ps_arr[i].shape))
+        h[f] = prob_array[i][f]
+        prob_array[i] = h
+                    
     prob_photons= np.zeros((len(photons), 5))
     prob_photons[:,0:4] = photons
     e_array = 10**np.linspace(3, 5, 3)
@@ -435,12 +345,22 @@ def analyze_a_source(src_name, npred, pbh_ra, pbh_dec, prefix, npred1000):
         y_index = int(max(min((photons[i,1]-pbh_dec)/0.1+34, 69),0))
         z_index = np.argmin(np.abs(e_array-photons[i,2]))
         prob_photons[i, 4] = prob_array[z_index,x_index, y_index]
-
+    print prob_photons[:,4]
     #run the algorithm
-    significance, v_recovered = movement_significance(prob_photons, pbh_ra, pbh_dec, np.sum(npred1000))
+    file = open('/nfs/farm/g/glast/u/johnsarc/PBH_Detectability/candidateROIs/'+src_name+'_photons.pk1', 'wb')
+    pickle.dump([prob_photons, pbh_ra, pbh_dec, np.sum(npred1000)], file)
+    file.close()
+    file = open('/nfs/farm/g/glast/u/johnsarc/PBH_Detectability/candidateROIs/'+src_name+'_prob_array.pk1','wb')
+    pickle.dump(prob_array,file)
+    file.close()
+    
+    significance, v_recovered, scrambled_values = ex.movement_significance(prob_photons[np.nonzero(prob_photons[:,4])], pbh_ra, pbh_dec, np.sum(npred1000))
+    file = open('/nfs/farm/g/glast/u/johnsarc/PBH_Detectability/candidateROIs/'+src_name+'_scrambled_values.pk1','wb')
+    pickle.dump(scrambled_values,file)
+    file.close()
+    
     return significance
-
-
+"""
 candidate = str(sys.argv[2])
 npred = int(float(sys.argv[3]))
 ra = float(sys.argv[4])
@@ -449,26 +369,34 @@ npred10 = float(sys.argv[6])
 npred100 = float(sys.argv[7])
 npred1000 = float(sys.argv[8])
 npred1000 = np.array([npred10, npred100, npred1000],'d')
+#prefix = '/nfs/farm/g/glast/u/johnsarc/PBH_Detectability'
 prefix = '/scratch/johnsarc/'+os.environ['LSB_JOBID']
 significance = analyze_a_source(candidate,npred,ra,dec, prefix, npred1000)
 
 print "saving results..."
-file = open('/nfs/farm/g/glast/u/johnsarc/PBH_Detectability/fgl_results_round2/'+os.environ['LSB_JOBID']+'.pk1','wb')
+file = open('/nfs/farm/g/glast/u/johnsarc/PBH_Detectability/catalog_search_results_5deg_cut/'+os.environ['LSB_JOBID']+'.pk1','wb')
 pickle.dump([candidate, significance],file)
 file.close()
 print "done saving!"
-
 """
 
 num_sources = 0
+num_gp_sources = 0
 #Step 1:
 #Comb the 3FGL for candidate sources
 fgl = pyfits.open('/nfs/farm/g/glast/u/johnsarc/PBH_Detectability/3FGL.fit')
+file = open('spectrally_consistent_candidates_5deg_cut.pk1','wb')
+pickle.dump([],file)
+file.close()
 for source in fgl[1].data:
     print "Checking source: " + str(source['SOURCE_NAME'])
     #print '"' + str(source['CLASS1']) + '"'
     #print '"' + str(source['ASSOC1']) + '"'
-    if source['CLASS1']=="" and source['ASSOC1']=="":#and np.abs(source['GLAT'])>5.0:
+    if source['CLASS1']=="" and source['ASSOC1']=="":
+        num_gp_sources += 1
+        if np.abs(source['GLAT'])>10.0:
+            num_sources += 1
+        """
         print "Candidate source! "
         spec1 = source['FLUX100_300']
         spec1_unc = max(source['Unc_FLUX100_300'][1],source['Unc_FLUX100_300'][0])
@@ -484,7 +412,6 @@ for source in fgl[1].data:
 
         spec5 = source['FLUX10000_100000']
         spec5_unc = max(source['Unc_FLUX10000_100000'][1],source['Unc_FLUX10000_100000'][0])
-
         src_spectrum = np.array([spec1, spec2, spec3, spec4, spec5],'d')
         src_spectrum_unc = np.array([spec1_unc, spec2_unc, spec3_unc, spec4_unc, spec5_unc],'d')
         ra = source['RAJ2000']
@@ -494,38 +421,27 @@ for source in fgl[1].data:
         npred1000 = np.zeros((3))
         j = 0
         energy = [200.0, 650.0, 2000.0, 6500.0, 55000.0]
+        print "Finding Npred..."
         for i in [2,3,4]:
+            print src_spectrum[i]*find_exposure(source['GLON'], source['GLAT'], energy[i])
             npred += src_spectrum[i]*find_exposure(source['GLON'], source['GLAT'], energy[i])
             npred1000[j] = src_spectrum[i]*find_exposure(source['GLON'], source['GLAT'], energy[i])
+            j += 1
+        print npred
+        print npred1000
+        print " "
         spectral_match, reconstructed_temp, min_chi2 = analyze_source_spectrum(src_spectrum, src_spectrum_unc, ra, dec)
         if spectral_match:
             num_sources += 1
-            file = open('spectrally_consistent_candidates.pk1','rb')
+            file = open('spectrally_consistent_candidates_5deg_cut.pk1','rb')
             g = pickle.load(file)
             g.append({'npred1000':npred1000,'src_name':src_name, 'src_spectrum':src_spectrum, 'src_spectrum_unc':src_spectrum_unc, 'npred':npred, 'ra':ra, 'dec':dec, 'rad':source['Conf_95_Semimajor']})
             file.close()
-            file = open('spectrally_consistent_candidates.pk1','wb')
+            file = open('spectrally_consistent_candidates_5deg_cut.pk1','wb')
             pickle.dump(g,file)
             file.close()
-
-            
-            ax = plt.gca()
-            for photon in photons:
-                if spatial_resolution(photon[2])<0.25:
-                    timefrac = (photon[3]-np.min(photons[:,3]))/(np.max(photons[:,3])-np.min(photons[:,3]))
-                    ax.add_patch(plt.Circle([photon[0],photon[1]], radius=0.5*spatial_resolution(photon[2]), color=[1.0-timefrac,timefrac,0.0],alpha=1.0, fill=False))
-
-            ellipse = mpatches.Ellipse([272.0968, -33.9632],width=2*0.0921,height=2*0.0802,angle=-43.320,fill=False, color='blue')
-            newx = 272.175942857-18.0372628227*elapsed_seconds*(360/(2*np.pi))/(distance*parsec_to_km)
-            newy = -33.6474285714 - 63.1304198794*elapsed_seconds*(360/(2*np.pi))/(distance*parsec_to_km)
-            start = mpatches.Circle([272.175942857,-33.6474285714],radius=0.02,color='black')
-            end = mpatches.Circle([newx,newy],radius = 0.02,color='black')
-            ax.add_patch(ellipse)
-            ax.add_patch(start)
-            ax.add_patch(end)
-            ax.set_ylim([-37.5, -30.0])
-            ax.set_xlim([268.0, 276.0])
-            plt.show()
+        """
             
 print "num sources = " + str(num_sources)
-"""
+
+print "num total sources = " + str(num_gp_sources)

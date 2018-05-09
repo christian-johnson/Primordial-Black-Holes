@@ -9,6 +9,12 @@ import pyfits
 import pickle
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
+from scipy.misc import factorial
+from scipy.optimize import curve_fit
+from matplotlib import cm
+from matplotlib.patches import Wedge, Circle
+
+
 print "done!"
 
 #Defining constants & functions for later use
@@ -132,37 +138,47 @@ def pvalue_given_chi2(x, k):
     initial_pos = np.argmin(np.abs(y-x))
     return get_integral(y[initial_pos:], g[initial_pos:])
 
-#not so much a gaussian, but a chi^2 for the fit. Now, with even more weight!
-def gaussian_with_motion(x, y, e, t, weights, sigma, x0, y0, vx, vy, distance):
+#no#not so much a gaussian, but a chi^2 for the fit. Now, with even more weight!
+def gaussian_with_motion(x, y, e, t, weights, sigma, x0, y0, vx, vy, distance,verbose):
+    MET_start = 239902981 #Time limits for 3FGL
     vx2 = 360.0*vx/(2*np.pi*distance*parsec_to_km)
     vy2 = 360.0*vy/(2*np.pi*distance*parsec_to_km)
     t2 = t-MET_start
-    result = (-1.0*((y-(y0+vy2*t2))**2+(np.sin(2*np.pi*y/360.0)*(x-(x0+vx2*t2)))**2)/(sigma**2))*(1.0-weights)
+    result = -1.0*((y-(y0+vy2*t2))**2+(np.sin(2*np.pi*(y+90.0)/360.0)*(x-(x0+vx2*t2)))**2)/(sigma**2)+weights
+    if verbose:
+        print vx, vx2, vy, vy2
+        print result
     return result
 
-def likelihood(phots, params, distance, npred):
+
+def likelihood(phots, params, distance, npred,verbose=False):
     x0 = params[0]
     y0 = params[1]
     vx = params[2]
     vy = params[3]
-    result = gaussian_with_motion(phots[:,0], phots[:,1], phots[:,2], phots[:,3], phots[:,4], phots[:,5], x0, y0, vx, vy, distance)
-    return sum(np.sort(result[np.nonzero(result)])[::-1][0:int(npred)])
+    if verbose:
+        print x0, y0, vx, vy
+    
+    result = gaussian_with_motion(phots[:,0], phots[:,1], phots[:,2], phots[:,3], phots[:,4], phots[:,5], x0, y0, vx, vy, distance, verbose)
+    the_sum = np.sum(np.sort(result)[::-1][0:int(npred)])
+        
+    return the_sum
+
 
 def likelihood_ratio_test(photons, ra, dec, npred):
     distance = 0.02
     rad = 1.0
     phots = np.zeros((len(photons),6))
-    phots[:,0:4] = photons[:,0:4]
+    phots[:,0:5] = photons[:,0:5]
     phots[:,5] = psf_array(photons[:,2])
     params = [ra, dec, 0.0, 0.0]
     bestvx = 0.0
     bestvy = 0.0
-    res = 5
+    res = 7
     minx = ra-rad
     maxx = ra+rad
     miny = dec-rad
     maxy = dec+rad
-    print "Optimal likelihood = " + str(likelihood(phots, [236.239840427, -35.3952977267, -150.288464424, 128.12239613], 0.02, 671))
     print "Optimizing with 2 free parameters..."
     for k in range(5):
         test_likelihood = np.zeros((res, res))
@@ -181,28 +197,26 @@ def likelihood_ratio_test(photons, ra, dec, npred):
         miny = besty0 - new_spacing
         maxy = besty0 + new_spacing
     print "best x = " +str(bestx0) + " best y = " + str(besty0)
-
     params = [bestx0, besty0, 0.0, 0.0]
     f0 = likelihood(phots, params, distance, npred)
-
     print "Optimizing with 4 free parameters..."
     #Next, maximize the likelihood by adjusting the values of the 4 degrees of freedom
-    dv = (4.0/elapsed_seconds)*(2*np.pi/360.0)*(distance*parsec_to_km)
-    minx = ra-rad
-    maxx = ra+rad
-    miny = dec-rad
-    maxy = dec+rad
+    dv = (2.0/elapsed_seconds)*(2*np.pi/360.0)*(distance*parsec_to_km)
+    minx = bestx0-rad
+    maxx = bestx0+rad
+    miny = besty0-rad
+    maxy = besty0+rad
     minvx = -1.0*dv
     maxvx = dv
     minvy = -1.0*dv
     maxvy = dv
+    
     for q in range(5):
         test_likelihood = np.zeros((res, res, res, res))
         x0_arr = np.linspace(minx, maxx, res)
         y0_arr = np.linspace(miny, maxy, res)
         vx_arr = np.linspace(minvx, maxvx, res)
         vy_arr = np.linspace(minvy, maxvy, res)
-
         for i in range(res):
             for j in range(res):
                 for k in range(res):
@@ -225,8 +239,7 @@ def likelihood_ratio_test(photons, ra, dec, npred):
         maxvx = bestvx+new_spacing_v
         minvy = bestvy-new_spacing_v
         maxvy = bestvy+new_spacing_v
-
-
+    print likelihood(phots,[158.147571457,-40.6159955696,121.34818209,-300.626096235], distance, npred,verbose=True)
     f1 = np.max(test_likelihood)
     print "best x = " +str(bestx0) + " best y = " + str(besty0)
     print "bestvx = " + str(bestvx) + " bestvy= " + str(bestvy)
@@ -236,107 +249,75 @@ def likelihood_ratio_test(photons, ra, dec, npred):
     return 2*(f1-f0), np.sqrt(bestvx**2+bestvy**2)
 
 
-def movement_significance(photons, ra, dec, npred):
-    trials = 20
+def expo(x, norm, k):
+    return x*norm*np.exp(-k*x)
 
-    ref_value, v_recovered = likelihood_ratio_test(photons, ra, dec, npred)
+def movement_significance(photons, ra, dec, npred):
+    print "NPRED = " + str(npred)
+    trials = 50
+    ref_value, v_recovered= likelihood_ratio_test(photons, ra, dec, npred)
+    #print str(sigma_given_p(pvalue_given_chi2(ref_value, 2))) + " sigma"
     scrambled_values = np.zeros((trials))
     for i in range(trials):
+        print "Trial " + str(i)
         photons[:,3] = np.random.rand(len(photons[:,3]))*elapsed_seconds+MET_start
-        scrambled_values[i], v_recovered_rand = likelihood_ratio_test(photons, ra, dec, npred)
+        scrambled_values[i], v_recovered_rand= likelihood_ratio_test(photons, ra, dec, npred)
+
+    bins = np.linspace(np.min(scrambled_values), np.max(scrambled_values), 25)
+    lim_hist = np.histogram(scrambled_values,bins) 
+    popt, pcov = curve_fit(expo, bins[:-1], lim_hist[0])
+    x_range = np.linspace(0.0, 50*np.max(scrambled_values), 500)
+    small_range = np.linspace(ref_value, 50*np.max(scrambled_values), 500)
+    p_value = get_integral(small_range,expo(small_range, *popt) )/get_integral(x_range, expo(x_range, *popt))
 
     print "Data: " + str(ref_value)
     print "Simulation: " + str(np.mean(scrambled_values)) + " +/- " + str(np.std(scrambled_values))
-    print str((ref_value-np.mean(scrambled_values))/np.std(scrambled_values)) + " sigma"
-    return (ref_value-np.mean(scrambled_values))/np.std(scrambled_values), v_recovered
+    sigma = (ref_value-np.mean(scrambled_values))/np.std(scrambled_values)
+    print str(sigma) + " sigma"
+    print str(sigma_given_p(p_value)) + " sigma, type 2"
+    return sigma, v_recovered, scrambled_values#(ref_value-np.mean(scrambled_values))/np.std(scrambled_values), v_recovered,
 
-
-
-#Step 1: gtlike calculation
-#Step 1a: Make xml model
-#Step 1b: Make sourcemap, exposure map, counts cube
-
-def perform_likelihood(elow, ehigh, num_ebins, pbh_ra, pbh_dec, prefix, pbh_present=False):
-    subprocess.call('python /nfs/farm/g/glast/u/johnsarc/PBH_Detectability/make3FGLxml.py -G /nfs/farm/g/glast/u/johnsarc/PBH_Detectability/gll_iem_v05.fits -g gll_iem_v05 -GIF True -i iso_source_v05 -r 3.0 -ER 2.0 -I /nfs/farm/g/glast/u/johnsarc/PBH_Detectability/iso_source_v05.txt -e /nfs/farm/g/glast/u/johnsarc/PBH_Detectability/Templates/ -o '+ prefix +'/xmlmodel.xml /nfs/farm/g/glast/u/johnsarc/PBH_Detectability/3FGL.fit '+ prefix +'/raw_data.fits',shell=True)
-    if pbh_present:
-        subprocess.call('python /nfs/farm/g/glast/u/johnsarc/PBH_Detectability/add_pbh_src_logparabola.py '+ str(pbh_ra) + ' ' + str(pbh_dec) + ' ' + prefix, shell=True)
-        
-    #run gtbin
-    evtbin['evfile'] = prefix+'/raw_data.fits'
-    evtbin['outfile'] = prefix+'/ccube.fits'
-    evtbin['ebinalg'] = 'LOG'
-    evtbin['emin'] = elow
-    evtbin['emax'] = ehigh
-    evtbin['enumbins'] = num_ebins
-    evtbin['algorithm'] = 'ccube'
-    evtbin['coordsys'] = 'CEL'
-    evtbin['nxpix'] = 70
-    evtbin['nypix'] = 70
-    evtbin['binsz'] = 0.1
-    evtbin['xref'] = pbh_ra
-    evtbin['yref'] = pbh_dec
-    evtbin['axisrot'] = 0.0
-    evtbin['proj'] = 'AIT'
-    evtbin.run()
-
-    #run gtexpcube2
-    gtexpcube2['infile'] = prefix+'/ltcube.fits'
-    gtexpcube2['outfile'] = prefix+'/exposure.fits'
-    gtexpcube2['cmap'] = prefix+'/ccube.fits'
-    gtexpcube2['irfs'] = 'P7REP_SOURCE_V15'
-    gtexpcube2.run()
+"""
+fig = plt.figure()
+g = pyfits.open('srcmap.fits')
+f = np.zeros((70,70))
+for i in range(3,12):
+    f += g[i].data[0]
     
-    #run gtsrcmaps
-    srcMaps['expcube'] = prefix+'/ltcube.fits'
-    srcMaps['cmap'] = prefix+'/ccube.fits'
-    srcMaps['srcmdl'] = prefix+'/xmlmodel.xml'
-    srcMaps['bexpmap'] = prefix+'/exposure.fits'
-    srcMaps['outfile'] = prefix+'/srcmap.fits'
-    srcMaps['rfactor'] = 4
-    srcMaps['emapbnds'] = 'no'
-    srcMaps.run()
-    
-    #run gtlike
-    obs = BinnedObs(srcMaps=prefix+'/srcmap.fits', expCube='/nfs/farm/g/glast/u/johnsarc/PBH_Detectability/ltcube.fits', binnedExpMap=prefix+'/exposure.fits', irfs='P7REP_SOURCE_V15')
-    like = BinnedAnalysis(obs_complete, prefix+'/xmlmodel.xml', optimizer='NEWMINUIT')
-    like.tol=1e-8
-    like.fit(verbosity=0)
-    
-    return like
-    
-def make_model_cube(prefix, like):
-    f = pyfits.open(prefix+'/srcmap.fits')
-    model_map = np.zeros((70,70,10))
-    for source in like.sourceNames():
-        print "source = " + str(source)
-        print like._srcCnts(source)
-        for j in range(3,len(f)):
-            if source == f[j].header['EXTNAME']:
-                the_index = j
-            
-        num_photons = like._srcCnts(source)
-        model_counts = num_photons*f[the_index].data/np.sum(np.sum(f[the_index].data, axis=1), axis=2)
-        my_arr += model_counts
-    f.close()
-    return my_arr
+#plt.imshow(np.sqrt(np.flipud(f)),interpolation='none')
+#plt.show()
 
-pbh_ra = 236.239840427
-pbh_dec = -35.3952977267
-npred = 671
-
-#Load photons
-file = open('photons.pk1')
-prob_photons = pickle.load(file)
-file.close()  
-
-file = open('prob_array.pk1', 'rb')
-g = pickle.load(file)
+file = open('prob_array.pk1')
+prob_array = pickle.load(file)
 file.close()
 
-plt.imshow(g[0], interpolation='none')
-plt.show()  
-    
-significance, v_recovered = movement_significance(prob_photons, pbh_ra, pbh_dec, 671)
+#plt.imshow(np.flipud(prob_array[0]), interpolation='none')
+#plt.show()
     
 
+file = open('photons.pk1')
+[g, pbh_ra, pbh_dec, npred] = pickle.load(file)
+file.close()
+#plt.scatter(g[:,0][np.nonzero(g[:,4])][-int(npred):],g[:,1][np.nonzero(g[:,4])][-int(npred):],c=g[:,3][np.nonzero(g[:,3])][-int(npred):],s=25.0)
 
+#plt.show()
+
+movement_significance(g[np.nonzero(g[:,4])], pbh_ra, pbh_dec, npred)
+#g[np.nonzero(g[:,4])] pbh_ra, pbh_dec, npred)
+
+file = open('scrambled_values.pk1')
+scrambled_values = pickle.load(file)
+file.close()
+bins = np.linspace(np.min(scrambled_values), np.max(scrambled_values), 25)
+lim_hist = plt.hist(scrambled_values,bins) 
+popt, pcov = curve_fit(expo, bins[:-1], lim_hist[0])
+x_range = np.linspace(0.0, 50*np.max(scrambled_values), 500)
+small_range = np.linspace(115.75700631, 50*np.max(scrambled_values), 500)
+p_value = get_integral(small_range,expo(small_range, *popt) )/get_integral(x_range, expo(x_range, *popt))
+
+print str(sigma_given_p(p_value)) + " sigma, type 2"
+x = bins
+y = expo(x,*popt)
+plt.plot(x,y)
+plt.show()
+"""
