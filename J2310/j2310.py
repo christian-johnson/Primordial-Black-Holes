@@ -49,7 +49,7 @@ def make_4fgl_plot(fits_file, image_path, time_display=False, time_start = 0.0, 
         ax1 = plt.axes([0.0, 0.1, 1.0, 1.0],projection=wcs)
     else:
         ax1 = plt.axes([0.0, 0.0, 1.0, 1.0],projection=wcs)
-    
+
     ax=plt.gca()
     #ax.grid(color='white',ls='dotted')
     n_sources = 0
@@ -61,10 +61,10 @@ def make_4fgl_plot(fits_file, image_path, time_display=False, time_start = 0.0, 
             n_sources+=1
         if dist<5.0 and n_sources>0:
             ax.scatter([float(entry['RAJ2000'])], [float(entry['DEJ2000'])], color='#2dff7b',marker='x',s=100.0,transform=ax.get_transform('world'))
-            
+
     #c = Wedge((roi_ra, roi_dec), 15.0, theta1=0.0, theta2=360.0, width=10.0, edgecolor='black', facecolor='#474747', transform=ax.get_transform('fk5'))
     #ax.add_patch(c)
-    mappable = plt.imshow(image_data,cmap='magma',interpolation='nearest',origin='lower',norm=colors.PowerNorm(gamma=0.6),vmin=0.0, vmax=5.0)
+    mappable = plt.imshow(image_data,cmap='inferno',interpolation='gaussian',origin='lower',norm=colors.PowerNorm(gamma=0.6),vmin=0.0, vmax=5.0)
     cb = plt.colorbar(mappable,label='Counts per pixel',fraction=0.046, pad=0.04)
 
     leg = plt.legend(loc=1,frameon=True)
@@ -77,28 +77,28 @@ def make_4fgl_plot(fits_file, image_path, time_display=False, time_start = 0.0, 
 
     plt.xlabel('RA J2000')
     plt.ylabel('DEC J2000')
-    
+
     if time_display:
         ax2 = plt.axes([0.0, 0.0, 1.0, 0.1])
         ax2.set_position([0.0,0.0, 1.0, 0.05])
-    
+
         plt.xlim([met_start4, met_end4])
         plt.ylim([0.0, 0.5])
         plt.axvline(352700000,linestyle='--',linewidth=2.0, color='red')
         plt.axvspan(time_start, time_end, alpha=0.5, color='green')
         plt.gca().axes.get_yaxis().set_visible(False)
         ax2.set_xlabel('MET')
-    
+
     plt.savefig(image_path,bbox_inches='tight')
     #plt.show()
-    
+
 def make_3fgl_plot(fits_file, image_path, time_display=False, time_start = 0.0, time_end = 1.0):
     roi_ra = 347.507419753
     roi_dec =  -5.8267
-    
+
     met_start3 = 239902981
     met_end3 = 365467563
-    
+
     fgl_4 = pyfits.open('3FGL.fits')
     image_data = fits.getdata(fits_file)
     filename = get_pkg_data_filename(fits_file)
@@ -110,7 +110,7 @@ def make_3fgl_plot(fits_file, image_path, time_display=False, time_start = 0.0, 
         ax1 = plt.axes([0.0, 0.1, 1.0, 1.0],projection=wcs)
     else:
         ax1 = plt.axes([0.0, 0.0, 1.0, 1.0],projection=wcs)
-        
+
     ax=plt.gca()
     n_sources = 0
     for entry in fgl_4[1].data:
@@ -121,8 +121,8 @@ def make_3fgl_plot(fits_file, image_path, time_display=False, time_start = 0.0, 
             n_sources+=1
         if dist<5.0 and n_sources>0:
             ax.scatter([float(entry['RAJ2000'])], [float(entry['DEJ2000'])], color='#2dff7b',marker='x',s=100.0,transform=ax.get_transform('world'))
-            
-    mappable = plt.imshow(image_data,cmap='magma',interpolation='nearest',origin='lower',norm=colors.PowerNorm(gamma=0.6),vmin=0.0, vmax=5.0)
+
+    mappable = plt.imshow(image_data,cmap='inferno',interpolation='lanczos',filterrad=10.0, origin='lower',norm=colors.PowerNorm(gamma=0.6),vmin=0.0, vmax=5.0)
 
     leg = plt.legend(loc=1,frameon=True)
     leg.get_frame().set_alpha(0.25)
@@ -135,18 +135,18 @@ def make_3fgl_plot(fits_file, image_path, time_display=False, time_start = 0.0, 
 
     plt.xlabel('RA J2000')
     plt.ylabel('DEC J2000')
-    
+
     if time_display:
         ax2 = plt.axes([0.0, 0.0, 1.0, 0.1])
         ax2.set_position([0.0,0.0, 1.0, 0.05])
-    
+
         plt.xlim([met_start3, met_end3])
         plt.ylim([0.0, 0.5])
         plt.axvline(352700000,linestyle='--',linewidth=2.0, color='red')
         plt.axvspan(time_start, time_end, alpha=0.5, color='green')
         plt.gca().axes.get_yaxis().set_visible(False)
         ax2.set_xlabel('MET')
-    
+
     plt.savefig(image_path,bbox_inches='tight')
     #plt.show()
 
@@ -159,16 +159,20 @@ def make_movie():
     fgl3_raw_filename = 'J2310.1-0557_raw.fits'
     fgl4_raw_filename = 'j2310.fits'
 
+    frac4 = 0.15
+
     met_start4 = 239557417
     met_end4 = 521403273
+    width4 = (met_end4-met_start4)*frac4
 
+    frac3 = 0.3
     met_start3 = 239902981
     met_end3 = 365467563
-
-    num_bins = 5
+    width3 = (met_end3-met_start3)*frac3
+    num_bins = 30
     for i in range(num_bins):
-        tmin = met_start3+i*(met_end3-met_start3)/num_bins
-        tmax = met_start3+(i+1)*(met_end3-met_start3)/num_bins
+        tmin = met_start3+i*(met_end3-width3-met_start3)/num_bins
+        tmax = tmin+width3
         filter['infile'] = fgl3_raw_filename
         filter['outfile'] = '3fgl_fits_files/'+str(i)+'_raw.fits'
         filter['ra'] = 347.507419753
@@ -179,7 +183,7 @@ def make_movie():
         filter['emin'] = 1000.0
         filter['emax'] = 800000.0
         filter.run()
-    
+
         evtbin['evfile'] = '3fgl_fits_files/'+str(i)+'_raw.fits'
         evtbin['outfile'] = '3fgl_fits_files/'+str(i)+'_image.fits'
         evtbin['algorithm'] = 'cmap'
@@ -196,13 +200,13 @@ def make_movie():
             image_path = '3fgl_images/0'+str(i)+'_image.png'
         else:
             image_path = '3fgl_images/'+str(i)+'_image.png'
-            
+
         make_3fgl_plot(fits_file = '3fgl_fits_files/'+str(i)+'_image.fits', image_path = image_path, time_display=True, time_start = tmin, time_end=tmax)
-    
-    num_bins = 12
+
+    num_bins = 45
     for i in range(num_bins):
-        tmin = met_start4+i*(met_end4-met_start4)/num_bins
-        tmax = met_start4+(i+1)*(met_end4-met_start4)/num_bins
+        tmin = met_start4+i*(met_end4-width4-met_start4)/num_bins
+        tmax = tmin+width4
         filter['infile'] = fgl4_raw_filename
         filter['outfile'] = '4fgl_fits_files/'+str(i)+'_raw.fits'
         filter['ra'] = 347.507419753
@@ -213,7 +217,7 @@ def make_movie():
         filter['emin'] = 1000.0
         filter['emax'] = 800000.0
         filter.run()
-    
+
         evtbin['evfile'] = '4fgl_fits_files/'+str(i)+'_raw.fits'
         evtbin['outfile'] = '4fgl_fits_files/'+str(i)+'_image.fits'
         evtbin['algorithm'] = 'cmap'
@@ -230,14 +234,13 @@ def make_movie():
             image_path = '4fgl_images/0'+str(i)+'_image.png'
         else:
             image_path = '4fgl_images/'+str(i)+'_image.png'
-    
+
         make_4fgl_plot(fits_file = '4fgl_fits_files/'+str(i)+'_image.fits', image_path = image_path, time_display=True, time_start = tmin, time_end=tmax)
-        
-    os.system('convert -antialias -delay 50 3fgl_images/*.png 3fgl_images/j2310_3fgl.gif')
-    os.system('convert -antialias -delay 50 4fgl_images/*.png 4fgl_images/j2310_4fgl.gif')
+
+    os.system('convert -antialias -delay 5 3fgl_images/*.png 3fgl_images/j2310_3fgl.gif')
+    os.system('convert -antialias -delay 5 4fgl_images/*.png 4fgl_images/j2310_4fgl.gif')
 
 
 make_movie()
 #make_3fgl_plot(fits_file = '4year_image.fits',image_path = '3fgl_overlay.pdf', time_display=False)
 #make_4fgl_plot(fits_file = '9year_image.fits',image_path = '4fgl_overlay.pdf', time_display=False)
-
